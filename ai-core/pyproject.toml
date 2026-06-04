@@ -10,6 +10,7 @@ dependencies = [
     "accelerate",
     "datasets",
     "pycocotools",
+    "scipy",
     "numpy",
     "pillow",
     "opencv-python-headless",
