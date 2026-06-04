@@ -1,0 +1,45 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+
+# Virtual environment
+.venv/
+
+# Weights & checkpoints
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+!weights/.gitkeep
+
+# Output & logs
+outputs/
+*.log
+wandb/
+
+# Environment (may contain secrets)
+.env
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+*.tsbuildinfo
+node_modules/
+
+# Data (large files tracked separately)
+ai-core/data/
