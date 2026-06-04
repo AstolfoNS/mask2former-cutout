@@ -3,14 +3,25 @@ Mask2Former Cutout model wrapper.
 
 Wraps the HuggingFace ``Mask2FormerForUniversalSegmentation`` for the
 person + car binary cutout task. The pretrained classification head is
-replaced with a 2-label head and the mask decoder is kept frozen for the
-initial fine-tuning phase.
+replaced with a 2-label head while the remaining pretrained segmentation stack
+is fine-tuned end to end.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Dict, Optional
+
+
+def _ensure_positive_int_env(name: str, default: str = "4") -> None:
+    value = os.environ.get(name, "")
+    if not value.isdigit() or int(value) <= 0:
+        os.environ[name] = default
+
+
+_ensure_positive_int_env("OMP_NUM_THREADS")
+_ensure_positive_int_env("MKL_NUM_THREADS")
 
 import torch
 import torch.nn as nn
@@ -40,6 +51,8 @@ class Mask2FormerCutout(nn.Module):
         self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
             hf_model_id,
             num_labels=num_labels,
+            id2label={0: "person", 1: "car"},
+            label2id={"person": 0, "car": 1},
             ignore_mismatched_sizes=ignore_mismatched_sizes,
         )
         self.num_labels = num_labels
