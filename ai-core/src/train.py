@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, Namespace
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,7 +52,9 @@ from transformers import (
     EarlyStoppingCallback,
     Mask2FormerForUniversalSegmentation,
     Mask2FormerImageProcessor,
+    PrinterCallback,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
 
@@ -348,8 +351,14 @@ def _semantic_targets_from_instances(
     return torch.stack(targets, dim=0)
 
 
+def _safe_divide(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return float(numerator) / float(denominator)
+
+
 def compute_metrics(eval_pred: Any) -> Dict[str, float]:
-    """Compute mean Intersection over Union from compact semantic masks.
+    """Compute segmentation metrics from compact semantic masks.
 
     ``prediction_step`` returns predictions and labels as ``(N, H, W)`` arrays.
     Valid classes are 0=person and 1=car; background is encoded as -1.
@@ -358,6 +367,9 @@ def compute_metrics(eval_pred: Any) -> Dict[str, float]:
     gt_semantic = np.asarray(eval_pred.label_ids)
 
     ious_per_class: Dict[int, List[float]] = {0: [], 1: []}
+    dice_per_class: Dict[int, List[float]] = {0: [], 1: []}
+    precision_per_class: Dict[int, float] = {}
+    recall_per_class: Dict[int, float] = {}
     valid_images = int(np.any(gt_semantic >= 0, axis=(1, 2)).sum())
 
     for cls_id in range(2):
@@ -366,35 +378,195 @@ def compute_metrics(eval_pred: Any) -> Dict[str, float]:
 
         intersection = np.logical_and(pred_pixels, gt_pixels).sum(axis=(1, 2))
         union = np.logical_or(pred_pixels, gt_pixels).sum(axis=(1, 2))
-        valid = union > 0
+        pred_count = pred_pixels.sum(axis=(1, 2))
+        gt_count = gt_pixels.sum(axis=(1, 2))
 
-        if np.any(valid):
-            class_ious = intersection[valid].astype(np.float64) / union[valid].astype(
-                np.float64
-            )
+        valid_iou = union > 0
+        if np.any(valid_iou):
+            class_ious = intersection[valid_iou].astype(np.float64) / union[
+                valid_iou
+            ].astype(np.float64)
             ious_per_class[cls_id].extend(class_ious.tolist())
+
+        dice_denominator = pred_count + gt_count
+        valid_dice = dice_denominator > 0
+        if np.any(valid_dice):
+            class_dice = (2.0 * intersection[valid_dice].astype(np.float64)) / (
+                dice_denominator[valid_dice].astype(np.float64)
+            )
+            dice_per_class[cls_id].extend(class_dice.tolist())
+
+        total_intersection = float(intersection.sum())
+        precision_per_class[cls_id] = _safe_divide(
+            total_intersection, float(pred_count.sum())
+        )
+        recall_per_class[cls_id] = _safe_divide(
+            total_intersection, float(gt_count.sum())
+        )
 
     mean_iou_per_class = {
         cls_id: float(np.mean(ious)) if ious else 0.0
         for cls_id, ious in ious_per_class.items()
     }
+    mean_dice_per_class = {
+        cls_id: float(np.mean(dice)) if dice else 0.0
+        for cls_id, dice in dice_per_class.items()
+    }
+
     all_ious = [iou for ious in ious_per_class.values() for iou in ious]
+    all_dice = [dice for values in dice_per_class.values() for dice in values]
     mean_iou = float(np.mean(all_ious)) if all_ious else 0.0
+    mean_dice = float(np.mean(all_dice)) if all_dice else 0.0
+
+    foreground_mask = gt_semantic >= 0
+    background_mask = gt_semantic == -1
+    pixel_accuracy = float(np.mean(pred_semantic == gt_semantic))
+    foreground_accuracy = float(
+        np.mean(pred_semantic[foreground_mask] == gt_semantic[foreground_mask])
+    ) if np.any(foreground_mask) else 0.0
+    background_accuracy = float(
+        np.mean(pred_semantic[background_mask] == gt_semantic[background_mask])
+    ) if np.any(background_mask) else 0.0
+    foreground_ratio = float(np.mean(foreground_mask))
 
     metrics = {
         "eval_mean_iou": mean_iou,
         "eval_iou_person": mean_iou_per_class[0],
         "eval_iou_car": mean_iou_per_class[1],
+        "eval_mean_dice": mean_dice,
+        "eval_dice_person": mean_dice_per_class[0],
+        "eval_dice_car": mean_dice_per_class[1],
+        "eval_pixel_accuracy": pixel_accuracy,
+        "eval_foreground_accuracy": foreground_accuracy,
+        "eval_background_accuracy": background_accuracy,
+        "eval_precision_person": precision_per_class[0],
+        "eval_precision_car": precision_per_class[1],
+        "eval_recall_person": recall_per_class[0],
+        "eval_recall_car": recall_per_class[1],
+        "eval_foreground_ratio": foreground_ratio,
     }
 
     logger.info(
-        "Evaluation: mIoU=%.4f | IoU(person)=%.4f | IoU(car)=%.4f | %d images",
+        "Eval summary | mIoU=%.4f | Dice=%.4f | PixelAcc=%.4f | "
+        "FgAcc=%.4f | BgAcc=%.4f | images=%d",
         mean_iou,
-        mean_iou_per_class[0],
-        mean_iou_per_class[1],
+        mean_dice,
+        pixel_accuracy,
+        foreground_accuracy,
+        background_accuracy,
         valid_images,
     )
     return metrics
+
+
+class PrettyTrainingCallback(TrainerCallback):
+    """Emit compact, readable progress logs from Hugging Face Trainer events."""
+
+    def __init__(
+        self,
+        train_samples: int,
+        val_samples: int,
+        effective_batch_size: int,
+    ) -> None:
+        self.train_samples = train_samples
+        self.val_samples = val_samples
+        self.effective_batch_size = effective_batch_size
+        self.start_time = time.perf_counter()
+        self.best_mean_iou = 0.0
+
+    @staticmethod
+    def _fmt(value: Any, digits: int = 4) -> str:
+        if isinstance(value, (float, np.floating)):
+            return f"{float(value):.{digits}f}"
+        return str(value)
+
+    @staticmethod
+    def _elapsed(seconds: float) -> str:
+        seconds = int(seconds)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+        return f"{minutes:02d}m{secs:02d}s"
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        logger.info("+%s+", "-" * 70)
+        logger.info(
+            "| Training started | train=%d | val=%d | effective_batch=%d",
+            self.train_samples,
+            self.val_samples,
+            self.effective_batch_size,
+        )
+        logger.info(
+            "| epochs=%.0f | max_steps=%s | log_every=%d | eval=%s | save=%s",
+            args.num_train_epochs,
+            state.max_steps,
+            args.logging_steps,
+            args.eval_strategy,
+            args.save_strategy,
+        )
+        logger.info("+%s+", "-" * 70)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs:
+            return
+        if "loss" not in logs:
+            return
+
+        elapsed = self._elapsed(time.perf_counter() - self.start_time)
+        logger.info(
+            "Train | step=%d/%d | epoch=%s | loss=%s | lr=%s | grad_norm=%s | elapsed=%s",
+            state.global_step,
+            state.max_steps,
+            self._fmt(logs.get("epoch", 0.0), digits=2),
+            self._fmt(logs.get("loss", 0.0)),
+            self._fmt(logs.get("learning_rate", 0.0), digits=8),
+            self._fmt(logs.get("grad_norm", "n/a")),
+            elapsed,
+        )
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if not metrics:
+            return
+
+        mean_iou = float(metrics.get("eval_mean_iou", 0.0))
+        if mean_iou > self.best_mean_iou:
+            self.best_mean_iou = mean_iou
+
+        logger.info("+%s+", "-" * 70)
+        logger.info(
+            "| Eval | epoch=%s | mIoU=%s | best=%s | loss=%s",
+            self._fmt(metrics.get("epoch", state.epoch or 0.0), digits=2),
+            self._fmt(mean_iou),
+            self._fmt(self.best_mean_iou),
+            self._fmt(metrics.get("eval_loss", 0.0)),
+        )
+        logger.info(
+            "| IoU  | person=%s | car=%s",
+            self._fmt(metrics.get("eval_iou_person", 0.0)),
+            self._fmt(metrics.get("eval_iou_car", 0.0)),
+        )
+        logger.info(
+            "| Dice | mean=%s | person=%s | car=%s",
+            self._fmt(metrics.get("eval_mean_dice", 0.0)),
+            self._fmt(metrics.get("eval_dice_person", 0.0)),
+            self._fmt(metrics.get("eval_dice_car", 0.0)),
+        )
+        logger.info(
+            "| Acc  | pixel=%s | foreground=%s | background=%s | fg_ratio=%s",
+            self._fmt(metrics.get("eval_pixel_accuracy", 0.0)),
+            self._fmt(metrics.get("eval_foreground_accuracy", 0.0)),
+            self._fmt(metrics.get("eval_background_accuracy", 0.0)),
+            self._fmt(metrics.get("eval_foreground_ratio", 0.0)),
+        )
+        logger.info(
+            "| P/R  | person=%s/%s | car=%s/%s",
+            self._fmt(metrics.get("eval_precision_person", 0.0)),
+            self._fmt(metrics.get("eval_recall_person", 0.0)),
+            self._fmt(metrics.get("eval_precision_car", 0.0)),
+            self._fmt(metrics.get("eval_recall_car", 0.0)),
+        )
+        logger.info("+%s+", "-" * 70)
 
 
 # ============================================================================
@@ -812,6 +984,8 @@ def main() -> None:
         save_strategy="epoch",
         logging_strategy="steps",
         logging_steps=50,
+        logging_first_step=True,
+        disable_tqdm=True,
         load_best_model_at_end=True,
         metric_for_best_model="eval_mean_iou",
         greater_is_better=True,
@@ -854,17 +1028,37 @@ def main() -> None:
         eval_dataset=val_dataset,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[early_stopping],
+        callbacks=[
+            early_stopping,
+            PrettyTrainingCallback(
+                train_samples=len(train_dataset),
+                val_samples=len(val_dataset),
+                effective_batch_size=(
+                    args.batch_size * args.gradient_accumulation_steps
+                ),
+            ),
+        ],
     )
+
+    # Keep console output readable: use PrettyTrainingCallback instead of the
+    # default dict-style PrinterCallback.
+    trainer.remove_callback(PrinterCallback)
 
     # ------------------------------------------------------------------
     # Launch training
     # ------------------------------------------------------------------
     logger.info("=" * 72)
-    logger.info("Starting training with effective batch size = %d",
-                 args.batch_size * args.gradient_accumulation_steps)
-    logger.info("Max epochs: %d | Early stopping patience: %d",
-                 args.epochs, args.early_stopping_patience)
+    logger.info(
+        "Starting training | effective_batch=%d | train=%d | val=%d",
+        args.batch_size * args.gradient_accumulation_steps,
+        len(train_dataset),
+        len(val_dataset),
+    )
+    logger.info(
+        "Epochs=%d | early_stopping_patience=%d | metric=eval_mean_iou",
+        args.epochs,
+        args.early_stopping_patience,
+    )
     logger.info("Output directory: %s", output_dir)
     logger.info("=" * 72)
 
