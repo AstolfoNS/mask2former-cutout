@@ -21,7 +21,8 @@ venv/
 *.ckpt
 *.bin
 *.safetensors
-!weights/.gitkeep
+ai-core/weights/
+!ai-core/weights/.gitkeep
 
 # Output & logs
 outputs/
