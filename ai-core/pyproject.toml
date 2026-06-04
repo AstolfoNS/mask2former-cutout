@@ -8,16 +8,12 @@ dependencies = [
     "torchvision==0.20.1",
     "transformers==4.57.6",
     "accelerate",
-    "datasets",
-    "pycocotools",
     "scipy",
     "numpy",
     "pillow",
     "opencv-python-headless",
     "wandb",
     "python-dotenv",
-    "rich",
-    "hydra-core",
 ]
 
 [tool.uv.sources]
