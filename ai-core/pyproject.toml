@@ -1,0 +1,34 @@
+[project]
+name = "mask2former-cutout-ai"
+version = "0.1.0"
+description = "Mask2Former-based person and car cutout AI core"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch==2.5.1",
+    "torchvision==0.20.1",
+    "transformers==4.57.6",
+    "accelerate",
+    "datasets",
+    "pycocotools",
+    "numpy",
+    "pillow",
+    "opencv-python-headless",
+    "wandb",
+    "python-dotenv",
+    "rich",
+    "hydra-core",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

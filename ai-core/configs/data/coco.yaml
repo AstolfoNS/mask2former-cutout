@@ -1,0 +1,30 @@
+# @package _group_
+# Data configuration for hvm_coco_512 dataset
+
+dataset_name: "hvm_coco_512"
+data_dir: ${hydra:runtime.cwd}/data/hvm_coco_512
+image_dir: ${..data_dir}/images
+mask_dir: ${..data_dir}/masks
+annotation_file: ${..data_dir}/annotations.json
+
+# Image dimensions
+image_size: [512, 512]
+num_classes: 2  # person, car
+
+# Augmentation (light — masks must stay aligned)
+augmentation:
+  enabled: true
+  random_horizontal_flip:
+    enabled: true
+    prob: 0.5
+  random_brightness_contrast:
+    enabled: true
+    brightness_limit: 0.1
+    contrast_limit: 0.1
+  random_rotate_90:
+    enabled: true
+    prob: 0.3
+
+# Normalization (ImageNet stats)
+norm_mean: [0.485, 0.456, 0.406]
+norm_std: [0.229, 0.224, 0.225]
