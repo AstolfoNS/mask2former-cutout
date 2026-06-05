@@ -14,7 +14,7 @@ import {
 } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useCutoutApi } from '@/composables/useCutoutApi'
-import type { CutoutMode } from '@/types'
+import type { CutoutMode, CutoutResponse } from '@/types'
 
 const props = defineProps<{
   isProcessing: boolean
@@ -23,10 +23,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'image-selected': [file: File]
-  'cutout-result': [result: { maskBase64: string; detectedClasses: string[]; processingTimeMs: number }]
+  'cutout-result': [result: CutoutResponse]
   'processing-state': [processing: boolean]
   'mode-change': [mode: CutoutMode]
-  'service-status': [status: string]
+  'service-status': [status: string, gpuName: string]
 }>()
 
 const message = useMessage()
@@ -34,25 +34,18 @@ const { checkHealth, runCutout } = useCutoutApi()
 
 const selectedFile = ref<File | null>(null)
 const threshold = ref(0.5)
-const returnFormat = ref<'png' | 'alpha' | 'composite'>('png')
 const previewUrl = ref<string>('')
 
 const modeOptions = [
-  { label: 'All (Person + Car)', value: 'all' as CutoutMode },
+  { label: 'Both (Person + Car)', value: 'both' as CutoutMode },
   { label: 'Person Only', value: 'person' as CutoutMode },
   { label: 'Car Only', value: 'car' as CutoutMode },
-]
-
-const formatOptions = [
-  { label: 'Mask (PNG)', value: 'png' },
-  { label: 'Alpha Channel (RGBA)', value: 'alpha' },
-  { label: 'Composite Overlay', value: 'composite' },
 ]
 
 onMounted(async () => {
   const health = await checkHealth()
   if (health) {
-    emit('service-status', health.status)
+    emit('service-status', health.status, health.gpu_name)
   }
 })
 
@@ -76,19 +69,16 @@ async function handleCutout() {
     selectedFile.value,
     props.currentMode,
     threshold.value,
-    returnFormat.value,
   )
   emit('processing-state', false)
 
   if (result) {
-    emit('cutout-result', {
-      maskBase64: result.mask_base64,
-      detectedClasses: result.detected_classes,
-      processingTimeMs: result.processing_time_ms,
-    })
-    message.success(`Cutout completed in ${result.processing_time_ms.toFixed(0)} ms`)
+    emit('cutout-result', result)
+    message.success(
+      `Cutout completed in ${result.timing.total_ms.toFixed(0)} ms`
+    )
   } else {
-    message.error('Cutout failed. Check console for details.')
+    message.error('Cutout failed. Please try again.')
   }
 }
 </script>
@@ -113,6 +103,7 @@ async function handleCutout() {
       </NUploadDragger>
     </NUpload>
 
+    <!-- Preview -->
     <div v-if="previewUrl" class="mt-4">
       <img
         :src="previewUrl"
@@ -121,6 +112,7 @@ async function handleCutout() {
       />
     </div>
 
+    <!-- Parameters -->
     <div class="mt-4 space-y-3">
       <div>
         <NText class="text-sm font-medium">Target Mode</NText>
@@ -145,18 +137,9 @@ async function handleCutout() {
           class="mt-1"
         />
       </div>
-
-      <div>
-        <NText class="text-sm font-medium">Output Format</NText>
-        <NSelect
-          v-model:value="returnFormat"
-          :options="formatOptions"
-          size="small"
-          class="mt-1"
-        />
-      </div>
     </div>
 
+    <!-- Submit -->
     <NSpace justify="end" class="mt-4">
       <NButton
         type="primary"

@@ -10,31 +10,26 @@ import {
   NH1,
   NP,
   NTag,
-  darkTheme,
 } from 'naive-ui'
 import ImageUploader from './components/ImageUploader.vue'
-import MaskCanvas from './components/MaskCanvas.vue'
-import ResultPanel from './components/ResultPanel.vue'
-import type { CutoutMode } from './types'
+import ResultViewer from './components/ResultViewer.vue'
+import HistoryList from './components/HistoryList.vue'
+import type { CutoutMode, CutoutResponse } from './types'
 
 const currentFile = ref<File | null>(null)
-const currentMode = ref<CutoutMode>('all')
-const maskBase64 = ref<string>('')
-const detectedClasses = ref<string[]>([])
-const processingTime = ref<number>(0)
+const currentMode = ref<CutoutMode>('both')
+const lastResult = ref<CutoutResponse | null>(null)
 const isProcessing = ref(false)
 const serviceStatus = ref<string>('checking...')
+const gpuInfo = ref<string>('')
 
 function onImageSelected(file: File) {
   currentFile.value = file
-  maskBase64.value = ''
-  detectedClasses.value = []
+  lastResult.value = null
 }
 
-function onCutoutResult(result: { maskBase64: string; detectedClasses: string[]; processingTimeMs: number }) {
-  maskBase64.value = result.maskBase64
-  detectedClasses.value = result.detectedClasses
-  processingTime.value = result.processingTimeMs
+function onCutoutResult(result: CutoutResponse) {
+  lastResult.value = result
 }
 
 function onProcessingState(processing: boolean) {
@@ -43,6 +38,16 @@ function onProcessingState(processing: boolean) {
 
 function onModeChange(mode: CutoutMode) {
   currentMode.value = mode
+}
+
+function onServiceStatus(status: string, gpuName: string) {
+  serviceStatus.value = status
+  gpuInfo.value = gpuName
+}
+
+function onSelectHistory(result: CutoutResponse) {
+  lastResult.value = result
+  currentFile.value = null
 }
 </script>
 
@@ -55,7 +60,7 @@ function onModeChange(mode: CutoutMode) {
             <div class="flex items-center gap-3">
               <NH1 class="!text-xl !font-bold !m-0">Mask2Former Cutout</NH1>
               <NTag :type="serviceStatus === 'ok' ? 'success' : 'warning'" size="small">
-                {{ serviceStatus }}
+                {{ serviceStatus === 'ok' ? gpuInfo : serviceStatus }}
               </NTag>
             </div>
             <NP class="!m-0 text-sm text-gray-500">
@@ -66,6 +71,7 @@ function onModeChange(mode: CutoutMode) {
 
         <NLayoutContent class="max-w-6xl mx-auto w-full p-6">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Left column: Upload + Parameters -->
             <div class="space-y-4">
               <ImageUploader
                 :is-processing="isProcessing"
@@ -74,19 +80,19 @@ function onModeChange(mode: CutoutMode) {
                 @cutout-result="onCutoutResult"
                 @processing-state="onProcessingState"
                 @mode-change="onModeChange"
-                @service-status="(s: string) => serviceStatus = s"
+                @service-status="onServiceStatus"
               />
             </div>
 
+            <!-- Right column: Result + History -->
             <div class="space-y-4">
-              <MaskCanvas
-                :mask-base64="maskBase64"
+              <ResultViewer
+                :result="lastResult"
                 :original-file="currentFile"
-              />
-              <ResultPanel
-                :detected-classes="detectedClasses"
-                :processing-time="processingTime"
                 :is-processing="isProcessing"
+              />
+              <HistoryList
+                @select-history="onSelectHistory"
               />
             </div>
           </div>
