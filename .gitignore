@@ -44,3 +44,7 @@ node_modules/
 
 # Data (large files tracked separately)
 ai-core/data/
+
+# Agents
+.claude/
+.agents/
