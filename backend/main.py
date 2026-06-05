@@ -21,8 +21,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router, set_engine
+from app.core import config
 from app.core.engine import CutoutEngine
 
 # Load env vars from ai-core/.env if present
@@ -42,16 +44,15 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle for the FastAPI application."""
     logger.info("=== Mask2Former-Cutout Backend Starting ===")
 
-    checkpoint = os.getenv("MASK2FORMER_CHECKPOINT", None)
-    app.state.engine = CutoutEngine(
-        checkpoint_path=checkpoint,
-        hf_model_id=os.getenv(
-            "HF_MODEL_ID", "facebook/mask2former-swin-small-coco-instance"
-        ),
-    )
+    # Create required directories
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load the inference engine (model is loaded once and kept in memory)
+    app.state.engine = CutoutEngine()
     set_engine(app.state.engine)
 
-    logger.info("Engine loaded. Server ready.")
+    logger.info("Model loaded. Server is ready.")
     yield
 
     logger.info("=== Mask2Former-Cutout Backend Shutting Down ===")
@@ -68,7 +69,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",   # Vite dev server
+        "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
     ],
@@ -77,9 +78,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files directory for serving uploads and outputs
+static_dir = Path(__file__).resolve().parent / "app" / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Register API routes
 app.include_router(router)
 
 
 @app.get("/")
 async def root():
-    return {"service": "Mask2Former-Cutout", "version": "0.1.0"}
+    return {
+        "service": "Mask2Former-Cutout",
+        "version": "0.1.0",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
