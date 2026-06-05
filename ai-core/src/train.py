@@ -19,6 +19,7 @@ Author: Mask2Former Cutout AI Core Team
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -457,6 +458,106 @@ def compute_metrics(eval_pred: Any) -> Dict[str, float]:
         valid_images,
     )
     return metrics
+
+
+class MetricsLoggingCallback(TrainerCallback):
+    """Persist train/eval metrics to a CSV file for offline plotting.
+
+    The file is opened in append mode for every write so interrupted runs keep
+    their history.  A header is created only when the file does not exist or is
+    empty.
+    """
+
+    FIELDNAMES = [
+        "event",
+        "step",
+        "epoch",
+        "loss",
+        "learning_rate",
+        "eval_loss",
+        "mIoU",
+        "Dice",
+        "PixelAcc",
+        "iou_person",
+        "iou_car",
+        "dice_person",
+        "dice_car",
+    ]
+
+    def __init__(self, metrics_path: str | Path) -> None:
+        self.metrics_path = Path(metrics_path)
+
+    @staticmethod
+    def _value(metrics: Dict[str, Any], key: str) -> Any:
+        value = metrics.get(key)
+        if isinstance(value, (float, np.floating)):
+            return float(value)
+        if isinstance(value, (int, np.integer)):
+            return int(value)
+        return value
+
+    @staticmethod
+    def _is_local_process_zero(state: Any) -> bool:
+        return bool(getattr(state, "is_local_process_zero", True))
+
+    def _append_row(self, row: Dict[str, Any]) -> None:
+        self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        needs_header = (
+            not self.metrics_path.exists()
+            or self.metrics_path.stat().st_size == 0
+        )
+
+        with self.metrics_path.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=self.FIELDNAMES)
+            if needs_header:
+                writer.writeheader()
+            writer.writerow(row)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs or "loss" not in logs:
+            return
+        if not self._is_local_process_zero(state):
+            return
+
+        row = {
+            "event": "train",
+            "step": state.global_step,
+            "epoch": self._value(logs, "epoch"),
+            "loss": self._value(logs, "loss"),
+            "learning_rate": self._value(logs, "learning_rate"),
+            "eval_loss": None,
+            "mIoU": None,
+            "Dice": None,
+            "PixelAcc": None,
+            "iou_person": None,
+            "iou_car": None,
+            "dice_person": None,
+            "dice_car": None,
+        }
+        self._append_row(row)
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if not metrics:
+            return
+        if not self._is_local_process_zero(state):
+            return
+
+        row = {
+            "event": "eval",
+            "step": state.global_step,
+            "epoch": self._value(metrics, "epoch"),
+            "loss": None,
+            "learning_rate": None,
+            "eval_loss": self._value(metrics, "eval_loss"),
+            "mIoU": self._value(metrics, "eval_mean_iou"),
+            "Dice": self._value(metrics, "eval_mean_dice"),
+            "PixelAcc": self._value(metrics, "eval_pixel_accuracy"),
+            "iou_person": self._value(metrics, "eval_iou_person"),
+            "iou_car": self._value(metrics, "eval_iou_car"),
+            "dice_person": self._value(metrics, "eval_dice_person"),
+            "dice_car": self._value(metrics, "eval_dice_car"),
+        }
+        self._append_row(row)
 
 
 class PrettyTrainingCallback(TrainerCallback):
@@ -1030,6 +1131,9 @@ def main() -> None:
         compute_metrics=compute_metrics,
         callbacks=[
             early_stopping,
+            MetricsLoggingCallback(
+                metrics_path=Path(output_dir) / "training_metrics.csv",
+            ),
             PrettyTrainingCallback(
                 train_samples=len(train_dataset),
                 val_samples=len(val_dataset),
