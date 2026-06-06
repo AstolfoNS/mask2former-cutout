@@ -448,7 +448,15 @@ def annotation_from_polygons(
     max_area_ratio: float,
     min_bbox_side: float,
 ) -> Optional[BuiltAnnotation]:
-    mask = mask_from_polygons(polygons, output_size)
+    valid_polygons = [
+        [round(float(value), 2) for value in polygon]
+        for polygon in polygons
+        if len(polygon) >= 6 and polygon_area(polygon) > 0
+    ]
+    if not valid_polygons:
+        return None
+
+    mask = mask_from_polygons(valid_polygons, output_size)
     area = float(mask.sum())
     total_pixels = float(output_size * output_size)
     area_ratio = area / total_pixels
@@ -464,14 +472,6 @@ def annotation_from_polygons(
     width = float(xs.max() - xs.min() + 1)
     height = float(ys.max() - ys.min() + 1)
     if width < min_bbox_side or height < min_bbox_side:
-        return None
-
-    valid_polygons = [
-        [round(float(value), 2) for value in polygon]
-        for polygon in polygons
-        if len(polygon) >= 6 and polygon_area(polygon) > 0
-    ]
-    if not valid_polygons:
         return None
 
     return BuiltAnnotation(

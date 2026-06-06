@@ -45,7 +45,7 @@ scene hard cases.
 One-command COCO small subset download and build:
 
 ```bash
-.venv/bin/python ai-core/scripts/download_and_build_coco_cutout.py \
+.venv/bin/python ai-core/scripts/data/download_and_build_coco_cutout.py \
     --clean-output
 ```
 
@@ -55,7 +55,7 @@ images. It does not download the full train2017 image archive.
 Use smaller targets for a quick first run:
 
 ```bash
-.venv/bin/python ai-core/scripts/download_and_build_coco_cutout.py \
+.venv/bin/python ai-core/scripts/data/download_and_build_coco_cutout.py \
     --output-dir ai-core/data/cutout_mix_512_small \
     --final-total 500 \
     --final-both 280 \
@@ -68,7 +68,7 @@ Use smaller targets for a quick first run:
 Manual build from already downloaded sources:
 
 ```bash
-.venv/bin/python ai-core/scripts/build_cutout_dataset.py \
+.venv/bin/python ai-core/scripts/data/build_cutout_dataset.py \
     --config ai-core/configs/cutout_dataset_small.json
 ```
 
@@ -95,7 +95,7 @@ cd ai-core
 Use the existing HVM source only for script validation, not for final training:
 
 ```bash
-.venv/bin/python ai-core/scripts/build_cutout_dataset.py \
+.venv/bin/python ai-core/scripts/data/build_cutout_dataset.py \
     --output-dir /tmp/cutout_dataset_smoke \
     --clean-output \
     --coco hvm ai-core/data/hvm_coco_512/annotations.json ai-core/data/hvm_coco_512/images \

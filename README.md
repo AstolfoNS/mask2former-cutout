@@ -40,7 +40,11 @@ mask2former-cutout/
         src/
             train.py
         scripts/
+            data/
+                build_cutout_dataset.py
+                download_and_build_coco_cutout.py
             train.sh
+            setup_env.sh
         data/
         weights/
             mask2former-cutout/
