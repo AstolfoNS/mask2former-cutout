@@ -14,7 +14,7 @@ import {
 } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useCutoutApi } from '@/composables/useCutoutApi'
-import type { CutoutMode, CutoutResponse } from '@/types'
+import type { CutoutMode, CutoutResponse, ModelInfo } from '@/types'
 
 const props = defineProps<{
   isProcessing: boolean
@@ -30,12 +30,15 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
-const { checkHealth, runCutout } = useCutoutApi()
+const { checkHealth, listModels, runCutout } = useCutoutApi()
 
 const uploadFileList = ref<UploadFileInfo[]>([])
 const selectedFile = ref<File | null>(null)
 const threshold = ref(0.5)
 const previewUrl = ref<string>('')
+const selectedModelId = ref<string | null>(null)
+const modelOptions = ref<{ label: string; value: string }[]>([])
+const modelLoading = ref(false)
 
 const modeOptions = [
   { label: 'Both (Person + Car)', value: 'both' as CutoutMode },
@@ -44,11 +47,31 @@ const modeOptions = [
 ]
 
 onMounted(async () => {
-  const health = await checkHealth()
+  const [health] = await Promise.all([
+    checkHealth(),
+    loadModels(),
+  ])
   if (health) {
     emit('service-status', health.status, health.gpu_name)
   }
 })
+
+async function loadModels() {
+  modelLoading.value = true
+  try {
+    const response = await listModels()
+    const models: ModelInfo[] = response?.models || []
+    modelOptions.value = models.map((model) => ({
+      label: model.active ? `${model.label} (active)` : model.label,
+      value: model.id,
+    }))
+    selectedModelId.value = models.find((model) => model.active)?.id
+      || models[0]?.id
+      || null
+  } finally {
+    modelLoading.value = false
+  }
+}
 
 function onFileChange(options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) {
   const file = options.file.file
@@ -80,6 +103,7 @@ async function handleCutout() {
     selectedFile.value,
     props.currentMode,
     threshold.value,
+    selectedModelId.value,
   )
   emit('processing-state', false)
 
@@ -134,6 +158,18 @@ async function handleCutout() {
           size="small"
           class="mt-1"
           @update:value="(v: CutoutMode) => emit('mode-change', v)"
+        />
+      </div>
+
+      <div>
+        <NText class="text-sm font-medium">Inference Model</NText>
+        <NSelect
+          v-model:value="selectedModelId"
+          :options="modelOptions"
+          :loading="modelLoading"
+          :disabled="modelOptions.length === 0"
+          size="small"
+          class="mt-1"
         />
       </div>
 

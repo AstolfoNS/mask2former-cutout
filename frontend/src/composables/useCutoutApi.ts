@@ -3,7 +3,13 @@
  */
 import { ref } from "vue"
 import axios from "axios"
-import type { CutoutResponse, HealthResponse, CutoutMode, HistoryEntry } from "@/types"
+import type {
+  CutoutResponse,
+  HealthResponse,
+  CutoutMode,
+  HistoryEntry,
+  ModelListResponse,
+} from "@/types"
 
 const API_BASE = "/api"
 
@@ -36,10 +42,20 @@ export function useCutoutApi() {
     }
   }
 
+  async function listModels(): Promise<ModelListResponse | null> {
+    try {
+      const { data } = await axios.get<ModelListResponse>(API_BASE + "/models")
+      return data
+    } catch {
+      return null
+    }
+  }
+
   async function runCutout(
     file: File,
     mode: CutoutMode = "both",
     threshold: number = 0.5,
+    modelId?: string | null,
   ): Promise<CutoutResponse | null> {
     isProcessing.value = true
     error.value = null
@@ -58,6 +74,9 @@ export function useCutoutApi() {
     formData.append("return_mask", "true")
     formData.append("return_overlay", "true")
     formData.append("return_cutout", "true")
+    if (modelId) {
+      formData.append("model_id", modelId)
+    }
 
     try {
       const { data } = await axios.post<CutoutResponse>(
@@ -72,6 +91,8 @@ export function useCutoutApi() {
         timestamp: Date.now(),
         filename: file.name,
         classes: data.classes,
+        model_id: data.model_id,
+        model_label: data.model_label,
         files: data.files,
         thumbnail_url: data.files.overlay_url || data.files.cutout_url,
       }
@@ -116,6 +137,7 @@ export function useCutoutApi() {
     error,
     history,
     checkHealth,
+    listModels,
     runCutout,
     queryResult,
     clearResult,

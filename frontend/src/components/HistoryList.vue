@@ -31,6 +31,8 @@ function onSelect(entry: HistoryEntry) {
     job_id: entry.job_id,
     status: 'success',
     classes: entry.classes,
+    model_id: entry.model_id || 'default',
+    model_label: entry.model_label || entry.model_id || 'default',
     files: entry.files,
     timing: {
       preprocess_ms: 0,
@@ -93,7 +95,7 @@ function colorFor(cls: string): string {
                   {{ cls }}
                 </NTag>
                 <NText class="text-xs text-gray-400">
-                  {{ formatTime(entry.timestamp) }}
+                  {{ entry.model_label || entry.model_id || 'default' }} | {{ formatTime(entry.timestamp) }}
                 </NText>
               </div>
             </div>

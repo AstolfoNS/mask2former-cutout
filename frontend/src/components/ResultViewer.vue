@@ -111,6 +111,7 @@ function colorFor(cls: string): string {
           </NTag>
         </NSpace>
         <NText class="text-xs text-gray-400">
+          {{ result.model_label }} |
           {{ result.timing.total_ms.toFixed(0) }} ms
           (inference: {{ result.timing.inference_ms.toFixed(0) }} ms)
         </NText>

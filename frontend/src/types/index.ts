@@ -6,6 +6,7 @@ export interface CutoutRequest {
   return_mask: boolean
   return_overlay: boolean
   return_cutout: boolean
+  model_id?: string
 }
 
 export interface TimingInfo {
@@ -19,6 +20,8 @@ export interface CutoutResponse {
   job_id: string
   status: string
   classes: string[]
+  model_id: string
+  model_label: string
   files: {
     original_url?: string
     cutout_url?: string
@@ -42,6 +45,18 @@ export interface HealthResponse {
   model_loaded: boolean
   gpu_name: string
   version: string
+  active_model_id: string
+}
+
+export interface ModelInfo {
+  id: string
+  label: string
+  path: string
+  active: boolean
+}
+
+export interface ModelListResponse {
+  models: ModelInfo[]
 }
 
 export type CutoutMode = 'person' | 'car' | 'both'
@@ -53,6 +68,8 @@ export interface HistoryEntry {
   timestamp: number
   filename: string
   classes: string[]
+  model_id: string
+  model_label: string
   files: CutoutResponse['files']
   thumbnail_url?: string
 }
