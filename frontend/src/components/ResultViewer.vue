@@ -39,7 +39,7 @@ const currentImageUrl = computed(() => {
   const files = props.result.files
   switch (activeView.value) {
     case 'original':
-      return originalUrl.value
+      return files.original_url || originalUrl.value
     case 'mask':
       return files.mask_url || ''
     case 'overlay':

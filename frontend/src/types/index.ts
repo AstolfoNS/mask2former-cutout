@@ -20,6 +20,7 @@ export interface CutoutResponse {
   status: string
   classes: string[]
   files: {
+    original_url?: string
     cutout_url?: string
     mask_url?: string
     mask_person_url?: string

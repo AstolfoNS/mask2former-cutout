@@ -1,36 +1,35 @@
 /**
  * Composable for interacting with the backend cutout API.
  */
-import { ref } from 'vue'
-import axios from 'axios'
-import type { CutoutResponse, HealthResponse, CutoutMode, HistoryEntry } from '@/types'
+import { ref } from "vue"
+import axios from "axios"
+import type { CutoutResponse, HealthResponse, CutoutMode, HistoryEntry } from "@/types"
 
-const API_BASE = '/api'
+const API_BASE = "/api"
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem("cutout-history")
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveHistory(entries: HistoryEntry[]) {
+  const trimmed = entries.slice(0, 20)
+  localStorage.setItem("cutout-history", JSON.stringify(trimmed))
+}
+
+const isProcessing = ref(false)
+const lastResult = ref<CutoutResponse | null>(null)
+const error = ref<string | null>(null)
+const history = ref<HistoryEntry[]>(loadHistory())
 
 export function useCutoutApi() {
-  const isProcessing = ref(false)
-  const lastResult = ref<CutoutResponse | null>(null)
-  const error = ref<string | null>(null)
-  const history = ref<HistoryEntry[]>(loadHistory())
-
-  function loadHistory(): HistoryEntry[] {
-    try {
-      const raw = localStorage.getItem('cutout-history')
-      return raw ? JSON.parse(raw) : []
-    } catch {
-      return []
-    }
-  }
-
-  function saveHistory(entries: HistoryEntry[]) {
-    // Keep at most 20 entries
-    const trimmed = entries.slice(0, 20)
-    localStorage.setItem('cutout-history', JSON.stringify(trimmed))
-  }
-
   async function checkHealth(): Promise<HealthResponse | null> {
     try {
-      const { data } = await axios.get<HealthResponse>(`${API_BASE}/health`)
+      const { data } = await axios.get<HealthResponse>(API_BASE + "/health")
       return data
     } catch {
       return null
@@ -39,7 +38,7 @@ export function useCutoutApi() {
 
   async function runCutout(
     file: File,
-    mode: CutoutMode = 'both',
+    mode: CutoutMode = "both",
     threshold: number = 0.5,
   ): Promise<CutoutResponse | null> {
     isProcessing.value = true
@@ -47,43 +46,41 @@ export function useCutoutApi() {
     lastResult.value = null
 
     const formData = new FormData()
-    formData.append('file', file)
+    formData.append("file", file)
 
-    if (mode === 'person') {
-      formData.append('target_classes', 'person')
-    } else if (mode === 'car') {
-      formData.append('target_classes', 'car')
+    if (mode === "person") {
+      formData.append("target_classes", "person")
+    } else if (mode === "car") {
+      formData.append("target_classes", "car")
     }
-    // For 'both', omit target_classes to use all available classes
 
-    formData.append('score_threshold', String(threshold))
-    formData.append('return_mask', 'true')
-    formData.append('return_overlay', 'true')
-    formData.append('return_cutout', 'true')
+    formData.append("score_threshold", String(threshold))
+    formData.append("return_mask", "true")
+    formData.append("return_overlay", "true")
+    formData.append("return_cutout", "true")
 
     try {
       const { data } = await axios.post<CutoutResponse>(
-        `${API_BASE}/segment`,
+        API_BASE + "/segment",
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { headers: { "Content-Type": "multipart/form-data" } },
       )
       lastResult.value = data
 
-      // Add to history
       const entry: HistoryEntry = {
         job_id: data.job_id,
         timestamp: Date.now(),
         filename: file.name,
         classes: data.classes,
         files: data.files,
-        thumbnail_url: data.files.overlay_url,
+        thumbnail_url: data.files.overlay_url || data.files.cutout_url,
       }
       history.value.unshift(entry)
       saveHistory(history.value)
 
       return data
     } catch (e: any) {
-      const msg = e.response?.data?.detail || e.message || 'Unknown error'
+      const msg = e.response?.data?.detail || e.message || "Unknown error"
       error.value = msg
       return null
     } finally {
@@ -94,8 +91,9 @@ export function useCutoutApi() {
   async function queryResult(jobId: string): Promise<CutoutResponse | null> {
     try {
       const { data } = await axios.get<CutoutResponse>(
-        `${API_BASE}/results/${jobId}`,
+        API_BASE + "/results/" + jobId,
       )
+      lastResult.value = data
       return data
     } catch {
       return null
@@ -109,7 +107,7 @@ export function useCutoutApi() {
 
   function clearHistory() {
     history.value = []
-    localStorage.removeItem('cutout-history')
+    localStorage.removeItem("cutout-history")
   }
 
   return {
