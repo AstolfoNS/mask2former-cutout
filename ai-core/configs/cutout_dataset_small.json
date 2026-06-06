@@ -1,0 +1,47 @@
+{
+  "output_dir": "ai-core/data/cutout_mix_512",
+  "image_size": 512,
+  "resize_mode": "letterbox",
+  "seed": 42,
+  "min_selected": 800,
+  "max_total": 1000,
+  "max_both": 550,
+  "max_person_only": 175,
+  "max_car_only": 175,
+  "max_negative": 100,
+  "scan_multiplier": 10,
+  "person_labels": "person,rider",
+  "car_labels": "car",
+  "min_image_side": 384,
+  "min_instance_area_ratio": 0.002,
+  "max_instance_area_ratio": 0.75,
+  "min_bbox_side": 10.0,
+  "max_foreground_ratio": 0.75,
+  "blur_threshold": 30.0,
+  "min_both_ratio": 0.45,
+  "keep_crowd": false,
+  "clean_output": true,
+  "sources": {
+    "coco": [
+      {
+        "name": "coco2017_train",
+        "annotations_json": "ai-core/data/sources/coco/annotations/instances_train2017.json",
+        "image_dir": "ai-core/data/sources/coco/train2017"
+      },
+      {
+        "name": "hvm_existing",
+        "annotations_json": "ai-core/data/hvm_coco_512/annotations.json",
+        "image_dir": "ai-core/data/hvm_coco_512/images"
+      }
+    ],
+    "cityscapes": [
+      {
+        "name": "cityscapes_train",
+        "left_img_root": "ai-core/data/sources/cityscapes/leftImg8bit/train",
+        "gtfine_root": "ai-core/data/sources/cityscapes/gtFine/train"
+      }
+    ],
+    "semantic": [],
+    "negative": []
+  }
+}
