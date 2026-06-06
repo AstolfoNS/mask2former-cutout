@@ -5,16 +5,16 @@ the old single-instance HVM-only dataset.
 
 ## Target Mix
 
-The default recipe builds about 1000 images:
+The default COCO+VOC recipe builds about 6000 images:
 
-- 550 images containing both person and car.
-- 175 person-only images.
-- 175 car-only images.
-- Up to 100 negative/background images if provided.
+- Up to 3200 images containing both person and car.
+- Up to 1400 person-only images.
+- Up to 1400 car-only images.
+- At least 600 images from Pascal VOC 2012 trainval.
 
-The builder enforces a minimum selected count and a minimum person+car ratio so
-an HVM-only dataset cannot accidentally pass as production-quality training
-data.
+The builder enforces a minimum selected count, a minimum person+car ratio, and
+source-level minimums so non-COCO samples cannot be accidentally squeezed out by
+COCO-only candidates.
 
 ## Source Layout
 
@@ -34,13 +34,26 @@ ai-core/data/sources/
     gtFine/
       train/
         <city>/*_gtFine_polygons.json
+  voc2012/
+    images/
+      *.jpg
+    masks/
+      *.png
+    label_map.json
 ```
 
 COCO should be the first source to add because it provides real person/car
 instance masks with the lowest conversion cost. Cityscapes is useful for street
-scene hard cases.
+scene hard cases. Pascal VOC 2012 adds non-COCO semantic segmentation samples
+for generalization.
 
 ## Build
+
+Prepare Pascal VOC 2012 semantic segmentation data:
+
+```bash
+uv run --project ai-core python ai-core/scripts/data/prepare_pascal_voc2012.py
+```
 
 One-command COCO small subset download and build:
 
@@ -69,7 +82,7 @@ Manual build from already downloaded sources:
 
 ```bash
 uv run --project ai-core python ai-core/scripts/data/build_cutout_dataset.py \
-    --config ai-core/configs/cutout_dataset_small.json
+    --config ai-core/configs/cutout_dataset_coco_voc.json
 ```
 
 Output:

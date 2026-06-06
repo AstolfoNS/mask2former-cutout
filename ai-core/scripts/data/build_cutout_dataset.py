@@ -179,6 +179,14 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Add image-only negative/background samples.",
     )
+    parser.add_argument(
+        "--min-source-count",
+        nargs=2,
+        action="append",
+        metavar=("SOURCE", "COUNT"),
+        default=[],
+        help="Require at least COUNT selected samples from SOURCE.",
+    )
 
     parser.add_argument(
         "--person-labels",
@@ -317,6 +325,14 @@ def apply_config(args: argparse.Namespace) -> argparse.Namespace:
             [item["name"], item["image_dir"]]
             for item in sources.get("negative", [])
         ]
+    if not args.min_source_count:
+        min_source_counts = config.get("min_source_counts", {})
+        if min_source_counts and not isinstance(min_source_counts, dict):
+            raise ValueError("Recipe field 'min_source_counts' must be an object.")
+        args.min_source_count = [
+            [str(source), str(count)]
+            for source, count in min_source_counts.items()
+        ]
 
     return args
 
@@ -340,6 +356,7 @@ def parse_args_defaults() -> argparse.Namespace:
     namespace.cityscapes = []
     namespace.semantic = []
     namespace.negative = []
+    namespace.min_source_count = []
     namespace.person_labels = "person,rider"
     namespace.car_labels = "car"
     namespace.min_image_side = 256
@@ -356,6 +373,17 @@ def parse_args_defaults() -> argparse.Namespace:
 
 def split_labels(value: str) -> set[str]:
     return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+
+def parse_min_source_counts(args: argparse.Namespace) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for source, count in args.min_source_count:
+        parsed_count = int(count)
+        if parsed_count < 0:
+            raise ValueError(f"min source count must be non-negative: {source}")
+        if parsed_count > 0:
+            counts[source] = parsed_count
+    return counts
 
 
 def load_json(path: Path) -> Any:
@@ -907,12 +935,14 @@ def select_samples(
     }
 
     selected: List[BuiltSample] = []
+    selected_ids: set[int] = set()
     rejected: Dict[str, int] = {}
     processed_by_bucket: Dict[str, int] = {}
+    built_by_bucket: Dict[str, List[BuiltSample]] = {}
 
     for bucket in ("both", "person_only", "car_only", "negative"):
         quota = max(0, quotas[bucket])
-        if quota == 0 or len(selected) >= args.max_total:
+        if quota == 0:
             continue
 
         raw_candidates = list(groups[bucket])
@@ -931,13 +961,60 @@ def select_samples(
                 )
 
         bucket_samples.sort(key=lambda item: item.quality_score, reverse=True)
-        remaining_total = args.max_total - len(selected)
-        selected.extend(bucket_samples[: min(quota, remaining_total)])
+        built_by_bucket[bucket] = bucket_samples
+
+    bucket_remaining = {bucket: max(0, quota) for bucket, quota in quotas.items()}
+    source_min_counts = parse_min_source_counts(args)
+    min_source_selected: Dict[str, int] = {}
+
+    all_samples = [
+        sample
+        for bucket in ("both", "person_only", "car_only", "negative")
+        for sample in built_by_bucket.get(bucket, [])
+    ]
+    all_samples.sort(key=lambda item: item.quality_score, reverse=True)
+
+    for source, required_count in source_min_counts.items():
+        source_samples = [sample for sample in all_samples if sample.source == source]
+        for sample in source_samples:
+            if min_source_selected.get(source, 0) >= required_count:
+                break
+            if len(selected) >= args.max_total:
+                break
+            if id(sample) in selected_ids:
+                continue
+            if bucket_remaining.get(sample.bucket, 0) <= 0:
+                continue
+
+            selected.append(sample)
+            selected_ids.add(id(sample))
+            bucket_remaining[sample.bucket] -= 1
+            min_source_selected[source] = min_source_selected.get(source, 0) + 1
+
+    for bucket in ("both", "person_only", "car_only", "negative"):
+        if len(selected) >= args.max_total:
+            break
+        for sample in built_by_bucket.get(bucket, []):
+            if len(selected) >= args.max_total:
+                break
+            if bucket_remaining.get(bucket, 0) <= 0:
+                break
+            if id(sample) in selected_ids:
+                continue
+
+            selected.append(sample)
+            selected_ids.add(id(sample))
+            bucket_remaining[bucket] -= 1
 
     return selected, {
         "rejected": rejected,
         "processed_by_bucket": processed_by_bucket,
+        "built_by_bucket": {
+            key: len(value) for key, value in built_by_bucket.items()
+        },
         "available_by_bucket": {key: len(value) for key, value in groups.items()},
+        "min_source_counts": source_min_counts,
+        "min_source_selected": min_source_selected,
     }
 
 
@@ -971,6 +1048,8 @@ def write_dataset(
                 "file_name": file_name,
                 "width": args.image_size,
                 "height": args.image_size,
+                "source": sample.source,
+                "bucket": sample.bucket,
             }
         )
         source_counts[sample.source] = source_counts.get(sample.source, 0) + 1
@@ -1014,6 +1093,7 @@ def write_dataset(
                 "max_person_only": args.max_person_only,
                 "max_car_only": args.max_car_only,
                 "max_negative": args.max_negative,
+                "min_source_counts": parse_min_source_counts(args),
                 "min_instance_area_ratio": args.min_instance_area_ratio,
                 "max_instance_area_ratio": args.max_instance_area_ratio,
                 "blur_threshold": args.blur_threshold,
@@ -1045,6 +1125,20 @@ def validate_quality(selected: List[BuiltSample], args: argparse.Namespace) -> N
             "person and car in the same image, or lower --min-both-ratio only "
             "for smoke tests."
         )
+
+    selected_by_source: Dict[str, int] = {}
+    for sample in selected:
+        selected_by_source[sample.source] = selected_by_source.get(sample.source, 0) + 1
+
+    for source, required_count in parse_min_source_counts(args).items():
+        actual_count = selected_by_source.get(source, 0)
+        if actual_count < required_count:
+            raise ValueError(
+                "Dataset quality gate failed: selected source count "
+                f"for {source} is {actual_count}, below required {required_count}. "
+                "Add more valid samples from that source, relax filters only after "
+                "reviewing quality_report.json, or lower min_source_counts."
+            )
 
 
 def main() -> None:

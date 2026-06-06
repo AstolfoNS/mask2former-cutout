@@ -1,0 +1,46 @@
+{
+  "output_dir": "ai-core/data/cutout_mix_512",
+  "image_size": 512,
+  "resize_mode": "letterbox",
+  "seed": 42,
+  "min_selected": 5600,
+  "max_total": 6000,
+  "max_both": 3200,
+  "max_person_only": 1400,
+  "max_car_only": 1400,
+  "max_negative": 0,
+  "scan_multiplier": 12,
+  "person_labels": "person,rider",
+  "car_labels": "car",
+  "min_image_side": 256,
+  "min_instance_area_ratio": 0.002,
+  "max_instance_area_ratio": 0.75,
+  "min_bbox_side": 10.0,
+  "max_foreground_ratio": 0.75,
+  "blur_threshold": 30.0,
+  "min_both_ratio": 0.40,
+  "keep_crowd": false,
+  "clean_output": true,
+  "min_source_counts": {
+    "voc2012_trainval": 600
+  },
+  "sources": {
+    "coco": [
+      {
+        "name": "coco2017_small",
+        "annotations_json": "ai-core/data/sources/coco/annotations/instances_train2017_person_car_small.json",
+        "image_dir": "ai-core/data/sources/coco/train2017"
+      }
+    ],
+    "cityscapes": [],
+    "semantic": [
+      {
+        "name": "voc2012_trainval",
+        "image_dir": "ai-core/data/sources/voc2012/images",
+        "mask_dir": "ai-core/data/sources/voc2012/masks",
+        "label_map_json": "ai-core/data/sources/voc2012/label_map.json"
+      }
+    ],
+    "negative": []
+  }
+}

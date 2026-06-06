@@ -10,15 +10,15 @@
   - https://huggingface.co/docs/transformers/v4.37.2/en/perf_train_gpu_one
 
   说明：本文是训练方案核查记录，部分时间估算来自历史 7755 张训练集。
-  当前 `ai-core/data/cutout_mix_512/annotations.json` 为 5200 张图片、
-  22710 条标注；实际训练步数应按当前数据集重新估算。启动命令以
+  当前 `ai-core/data/cutout_mix_512/annotations.json` 为 6000 张图片、
+  24567 条标注；实际训练步数应按当前数据集重新估算。启动命令以
   `uv run python` 为准。
 
   ## 1. 架构与任务适配性诊断
 
   结论：Mask2Former Swin-Small 用于 512x512、person/car 双类别 COCO 实例分割是合理且偏强的基线。
 
-  当前处理后数据集约 5200 张图片；历史训练集曾为 7755 张。类别只有 2 类，且图像已统一到 512x512，这对 Swin-Small + Mask2Former 来说属于“中等数据量、低类别复杂度、高边界质量要求”的场
+  当前 COCO+VOC 处理后数据集约 6000 张图片；历史训练集曾为 7755 张。类别只有 2 类，且图像已统一到 512x512，这对 Swin-Small + Mask2Former 来说属于“中等数据量、低类别复杂度、高边界质量要求”的场
   景。Mask2Former 的 query-based mask decoder 对实例边界、重叠目标、多人多车场景会比普通 semantic-only 模型更合适。
 
   加载阶段必须注意：
@@ -49,7 +49,7 @@
   - 分类头会重新初始化：这不是 bug。骨干网络、像素解码器、mask decoder 的大部分权重会保留，只有类别预测相关层因维度变化被重建。
 
   关于“类别灾难性遗忘”：
-  如果你直接 num_labels=2 + ignore_mismatched_sizes=True，person/car 的 COCO 分类头语义不会被完整继承，但视觉特征和 mask 生成能力会继承。对于当前 5200 张
+  如果你直接 num_labels=2 + ignore_mismatched_sizes=True，person/car 的 COCO 分类头语义不会被完整继承，但视觉特征和 mask 生成能力会继承。对于当前 6000 张
   高质量数据，这通常足够。如果你追求极致冷启动，可以手动从原 80 类分类头迁移 person 和 car 两行权重到新 2 类头；但这需要确认当前 Transformers 版本中分
   类层命名，复杂度略高，不是首轮训练的必要条件。
 
@@ -87,9 +87,9 @@
 
   以 batch size 8 为例：
 
-  - 当前数据量：5200 张；
-  - micro-batch steps / epoch：约 ceil(5200 / 8) = 650；
-  - accumulation=2 后 optimizer steps / epoch：约 325。
+  - 当前数据量：6000 张；
+  - micro-batch steps / epoch：约 ceil(6000 / 8) = 750；
+  - accumulation=2 后 optimizer steps / epoch：约 375。
 
   4090 + bf16 + 512x512 的合理吞吐预估：
 
