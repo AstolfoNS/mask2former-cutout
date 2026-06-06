@@ -64,40 +64,42 @@ function colorFor(cls: string): string {
         </NPopconfirm>
       </div>
 
-      <NList clickable class="max-h-64 overflow-y-auto">
-        <NListItem
-          v-for="entry in history"
-          :key="entry.job_id"
-          @click="onSelect(entry)"
-        >
-          <template #prefix>
-            <img
-              v-if="entry.thumbnail_url"
-              :src="entry.thumbnail_url"
-              class="w-12 h-12 object-cover rounded border"
-              alt="thumb"
-            />
-          </template>
-          <div class="flex flex-col gap-1">
-            <NText class="text-sm font-medium truncate">
-              {{ entry.filename }}
-            </NText>
-            <div class="flex items-center gap-2">
-              <NTag
-                v-for="cls in entry.classes"
-                :key="cls"
-                :color="{ color: colorFor(cls), textColor: '#fff' }"
-                size="tiny"
-              >
-                {{ cls }}
-              </NTag>
-              <NText class="text-xs text-gray-400">
-                {{ formatTime(entry.timestamp) }}
+      <div class="overflow-y-auto" style="max-height: 360px">
+        <NList clickable>
+          <NListItem
+            v-for="entry in history"
+            :key="entry.job_id"
+            @click="onSelect(entry)"
+          >
+            <template #prefix>
+              <img
+                v-if="entry.thumbnail_url"
+                :src="entry.thumbnail_url"
+                class="w-12 h-12 object-cover rounded border"
+                alt="thumb"
+              />
+            </template>
+            <div class="flex flex-col gap-1">
+              <NText class="text-sm font-medium truncate">
+                {{ entry.filename }}
               </NText>
+              <div class="flex items-center gap-2">
+                <NTag
+                  v-for="cls in entry.classes"
+                  :key="cls"
+                  :color="{ color: colorFor(cls), textColor: '#fff' }"
+                  size="tiny"
+                >
+                  {{ cls }}
+                </NTag>
+                <NText class="text-xs text-gray-400">
+                  {{ formatTime(entry.timestamp) }}
+                </NText>
+              </div>
             </div>
-          </div>
-        </NListItem>
-      </NList>
+          </NListItem>
+        </NList>
+      </div>
     </div>
 
     <NEmpty v-else description="No history yet." class="py-4" />
