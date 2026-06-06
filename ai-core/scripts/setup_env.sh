@@ -12,6 +12,6 @@ echo "=> Syncing dependencies at lightning speed (via pyproject.toml)..."
 uv sync
 
 echo "=> Verifying PyTorch CUDA environment..."
-.venv/bin/python -c "import torch; print(f'PyTorch: {torch.__version__} | CUDA: {torch.version.cuda} | GPU: {torch.cuda.get_device_name(0)}')"
+uv run python -c "import torch; print(f'PyTorch: {torch.__version__} | CUDA: {torch.version.cuda} | GPU: {torch.cuda.get_device_name(0)}')"
 
-echo "=> Environment setup complete! Activate with: source .venv/bin/activate"
+echo "=> Environment setup complete! Run Python commands with: uv run python"

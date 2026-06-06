@@ -84,8 +84,14 @@ mask2former-cutout/
 - 任务：person / car 双类别分割
 - 输入尺寸：`512x512`
 - 数据格式：COCO JSON
-- 数据量：`7755` 张图片
+- 历史训练数据量：`7755` 张图片
 - 最佳验证指标：`mIoU ~= 0.9795`
+
+当前数据集构建与训练命令见：
+
+```text
+ai-core/docs/dataset_build.md
+```
 
 当前权重目录中包含：
 

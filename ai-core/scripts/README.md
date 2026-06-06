@@ -17,3 +17,12 @@ scripts/
 
 Run commands from the repository root unless a script explicitly says
 otherwise.
+
+Default Python entrypoints should use uv instead of directly calling a virtual
+environment interpreter:
+
+```bash
+uv run --project ai-core python ai-core/scripts/data/build_cutout_dataset.py --help
+cd ai-core
+uv run python -m src.train --help
+```
