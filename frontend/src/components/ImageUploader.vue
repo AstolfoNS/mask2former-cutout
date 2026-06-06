@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import {
   NUpload,
   NButton,
@@ -32,6 +32,7 @@ const emit = defineEmits<{
 const message = useMessage()
 const { checkHealth, runCutout } = useCutoutApi()
 
+const uploadFileList = ref<UploadFileInfo[]>([])
 const selectedFile = ref<File | null>(null)
 const threshold = ref(0.5)
 const previewUrl = ref<string>('')
@@ -52,11 +53,21 @@ onMounted(async () => {
 function onFileChange(options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) {
   const file = options.file.file
   if (file) {
+    uploadFileList.value = [options.file]
     selectedFile.value = file
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+    }
     previewUrl.value = URL.createObjectURL(file)
     emit('image-selected', file)
   }
 }
+
+onBeforeUnmount(() => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value)
+  }
+})
 
 async function handleCutout() {
   if (!selectedFile.value) {
@@ -86,8 +97,9 @@ async function handleCutout() {
 <template>
   <NCard title="Upload Image" class="w-full">
     <NUpload
+      v-model:file-list="uploadFileList"
       accept="image/*"
-      :max="1"
+      :default-upload="false"
       :show-file-list="false"
       @change="onFileChange"
     >
