@@ -9,20 +9,19 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
-
 from ..core import config
 from ..core.engine import CutoutEngine
 from ..core.storage import get_static_url
 from ..schemas.response import (
     CutoutResponse,
-    ErrorResponse,
     HealthResponse,
-    ResultQueryResponse,
+    TimingInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +30,7 @@ router = APIRouter(prefix="/api", tags=["cutout"])
 
 # Engine instance is injected by main.py at startup
 _engine: Optional[CutoutEngine] = None
+_inference_lock = asyncio.Lock()
 
 
 def set_engine(engine: CutoutEngine) -> None:
@@ -149,14 +149,15 @@ async def segment(
     # Run inference
     try:
         engine = get_engine()
-        result = engine.predict(
-            image=image,
-            target_classes=classes_list,
-            score_threshold=score_threshold,
-            return_mask=return_mask,
-            return_overlay=return_overlay,
-            return_cutout=return_cutout,
-        )
+        async with _inference_lock:
+            result = engine.predict(
+                image=image,
+                target_classes=classes_list,
+                score_threshold=score_threshold,
+                return_mask=return_mask,
+                return_overlay=return_overlay,
+                return_cutout=return_cutout,
+            )
     except Exception as exc:
         logger.exception("Inference failed")
         raise HTTPException(
@@ -179,9 +180,9 @@ async def segment(
 
 @router.get(
     "/results/{job_id}",
-    response_model=ResultQueryResponse,
+    response_model=CutoutResponse,
 )
-async def get_result(job_id: str) -> ResultQueryResponse:
+async def get_result(job_id: str) -> CutoutResponse:
     """Query a previously completed inference result by job ID.
 
     Returns 404 if the result directory does not exist.
@@ -194,14 +195,28 @@ async def get_result(job_id: str) -> ResultQueryResponse:
             detail=f"Result not found for job_id: {job_id}",
         )
 
-    # Discover available output files
+    result_path = job_dir / "result.json"
+    if result_path.exists():
+        try:
+            with result_path.open("r", encoding="utf-8") as f:
+                return CutoutResponse(**json.load(f))
+        except (json.JSONDecodeError, OSError, TypeError):
+            logger.warning("Failed to read result metadata for job_id=%s", job_id)
+
+    # Fallback for results generated before result.json support.
     files: dict[str, str] = {}
     for f in job_dir.iterdir():
-        if f.is_file():
-            files[f.stem] = get_static_url(f)
+        if not f.is_file() or f.name == "result.json":
+            continue
+        key = f"{f.stem}_url"
+        if f.stem == "mask_combined":
+            key = "mask_url"
+        files[key] = get_static_url(f)
 
-    return ResultQueryResponse(
+    return CutoutResponse(
         job_id=job_id,
         status="success",
+        classes=[],
         files=files,
+        timing=TimingInfo(),
     )

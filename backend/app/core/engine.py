@@ -8,6 +8,7 @@ transparent cutout outputs saved to disk.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
@@ -47,10 +48,10 @@ class CutoutEngine:
         hf_model_id: str = "facebook/mask2former-swin-small-coco-instance",
         device: Optional[str] = None,
         num_labels: int = 2,
-        input_size: Tuple[int, int] = (512, 512),
+        input_size: Optional[Tuple[int, int]] = None,
         inference_dtype: Optional[str] = None,
     ) -> None:
-        self.input_size = input_size
+        self.input_size = input_size or (config.INPUT_SIZE, config.INPUT_SIZE)
         self.device = torch.device(
             device or config.DEVICE
         )
@@ -240,7 +241,9 @@ class CutoutEngine:
         original_path = job_dir / "original.png"
         Image.fromarray(image_rgb).save(str(original_path))
 
-        files: Dict[str, str] = {}
+        files: Dict[str, str] = {
+            "original_url": storage.get_static_url(original_path),
+        }
 
         if return_mask:
             mask_path = job_dir / "mask_combined.png"
@@ -279,7 +282,7 @@ class CutoutEngine:
             t_total_ms,
         )
 
-        return {
+        response = {
             "job_id": job_id,
             "status": "success",
             "classes": detected_classes,
@@ -291,6 +294,12 @@ class CutoutEngine:
                 "total_ms": round(t_total_ms, 2),
             },
         }
+
+        result_path = job_dir / "result.json"
+        with result_path.open("w", encoding="utf-8") as f:
+            json.dump(response, f, ensure_ascii=False, indent=4)
+
+        return response
 
     # ------------------------------------------------------------------
     # Internal helpers
