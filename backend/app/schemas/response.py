@@ -17,6 +17,22 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(default=False, description="Whether the model is loaded.")
     gpu_name: str = Field(default="", description="GPU name, if available.")
     version: str = Field(default="0.1.0", description="Service version.")
+    active_model_id: str = Field(default="default", description="Current model id.")
+
+
+class ModelInfoResponse(BaseModel):
+    """Available local model directory."""
+
+    id: str = Field(..., description="Model identifier used by API requests.")
+    label: str = Field(..., description="Human-readable model label.")
+    path: str = Field(..., description="Resolved local model path.")
+    active: bool = Field(default=False, description="Whether this model is active.")
+
+
+class ModelListResponse(BaseModel):
+    """List of available local models."""
+
+    models: List[ModelInfoResponse] = Field(default_factory=list)
 
 
 class TimingInfo(BaseModel):
@@ -37,6 +53,8 @@ class CutoutResponse(BaseModel):
         default_factory=list,
         description="List of class names detected in the image.",
     )
+    model_id: str = Field(default="default", description="Model id used for inference.")
+    model_label: str = Field(default="default", description="Model label used for inference.")
     files: Dict[str, str] = Field(
         default_factory=dict,
         description="Map of output type to static file URL.",

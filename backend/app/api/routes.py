@@ -17,10 +17,12 @@ from typing import List, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from ..core import config
 from ..core.engine import CutoutEngine
+from ..core.model_registry import ModelManager
 from ..core.storage import get_static_url
 from ..schemas.response import (
     CutoutResponse,
     HealthResponse,
+    ModelListResponse,
     TimingInfo,
 )
 
@@ -30,18 +32,28 @@ router = APIRouter(prefix="/api", tags=["cutout"])
 
 # Engine instance is injected by main.py at startup
 _engine: Optional[CutoutEngine] = None
+_model_manager: Optional[ModelManager] = None
 _inference_lock = asyncio.Lock()
 
 
 def set_engine(engine: CutoutEngine) -> None:
-    global _engine
+    global _engine, _model_manager
     _engine = engine
+    _engine.model_id = "default"
+    _engine.model_label = "default"
+    _model_manager = ModelManager(engine)
 
 
 def get_engine() -> CutoutEngine:
     if _engine is None:
         raise RuntimeError("CutoutEngine has not been initialized.")
     return _engine
+
+
+def get_model_manager() -> ModelManager:
+    if _model_manager is None:
+        raise RuntimeError("ModelManager has not been initialized.")
+    return _model_manager
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +74,7 @@ async def health_check() -> HealthResponse:
             model_loaded=True,
             gpu_name=engine.gpu_name,
             version="0.1.0",
+            active_model_id=get_model_manager().active_model_id,
         )
     except RuntimeError:
         return HealthResponse(
@@ -70,7 +83,16 @@ async def health_check() -> HealthResponse:
             model_loaded=False,
             gpu_name="",
             version="0.1.0",
+            active_model_id="",
         )
+
+
+@router.get("/models", response_model=ModelListResponse)
+async def list_models() -> ModelListResponse:
+    """List local fine-tuned model directories available for inference."""
+    manager = get_model_manager()
+    models = [model.__dict__ for model in manager.list_models()]
+    return ModelListResponse(models=models)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +124,10 @@ async def segment(
     return_cutout: bool = Form(
         default=True,
         description="Generate a transparent cutout PNG.",
+    ),
+    model_id: Optional[str] = Form(
+        default=None,
+        description="Model id returned by /api/models. Omit to use the active model.",
     ),
 ) -> CutoutResponse:
     """Extract person and/or car masks from an uploaded image.
@@ -148,8 +174,9 @@ async def segment(
 
     # Run inference
     try:
-        engine = get_engine()
         async with _inference_lock:
+            manager = get_model_manager()
+            engine = manager.get_engine(model_id)
             result = engine.predict(
                 image=image,
                 target_classes=classes_list,
@@ -158,6 +185,12 @@ async def segment(
                 return_overlay=return_overlay,
                 return_cutout=return_cutout,
             )
+    except ValueError as exc:
+        logger.warning("Invalid inference request: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
     except Exception as exc:
         logger.exception("Inference failed")
         raise HTTPException(
@@ -171,6 +204,11 @@ async def segment(
         classes=result["classes"],
         files=result["files"],
         timing=result["timing"],
+        model_id=result.get("model_id", "default"),
+        model_label=result.get(
+            "model_label",
+            result.get("model_id", "default"),
+        ),
     )
 
 

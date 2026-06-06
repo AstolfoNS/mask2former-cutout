@@ -52,6 +52,7 @@ class CutoutEngine:
         inference_dtype: Optional[str] = None,
     ) -> None:
         self.input_size = input_size or (config.INPUT_SIZE, config.INPUT_SIZE)
+        self.model_dir = str(model_dir or config.MODEL_DIR)
         self.device = torch.device(
             device or config.DEVICE
         )
@@ -66,7 +67,7 @@ class CutoutEngine:
             self.autocast_dtype = torch.float32
 
         # Resolve model source
-        resolved_model = model_dir or str(config.MODEL_DIR)
+        resolved_model = self.model_dir
         model_path = Path(resolved_model)
 
         if model_path.exists() and model_path.is_dir() and (model_path / "config.json").exists():
@@ -286,6 +287,12 @@ class CutoutEngine:
             "job_id": job_id,
             "status": "success",
             "classes": detected_classes,
+            "model_id": getattr(self, "model_id", "default"),
+            "model_label": getattr(
+                self,
+                "model_label",
+                getattr(self, "model_id", "default"),
+            ),
             "files": files,
             "timing": {
                 "preprocess_ms": round(t_pre_ms, 2),

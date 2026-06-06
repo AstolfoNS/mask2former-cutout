@@ -30,6 +30,10 @@ MODEL_DIR: Path = Path(
     )
 ).resolve()
 
+MODEL_ROOT: Path = Path(
+    _env_or("MODEL_ROOT", str(PROJECT_ROOT / "ai-core" / "weights"))
+).resolve()
+
 HF_MODEL_ID: str = _env_or(
     "HF_MODEL_ID",
     "facebook/mask2former-swin-small-coco-instance",
