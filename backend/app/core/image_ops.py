@@ -7,6 +7,7 @@ Handles image loading, resizing, mask refinement, and transparent PNG generation
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import cv2
@@ -21,6 +22,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
+
+
+@dataclass(frozen=True)
+class LetterboxMeta:
+    """Geometry metadata for reversing letterbox preprocessing."""
+
+    scale: float
+    pad_left: int
+    pad_top: int
+    resized_width: int
+    resized_height: int
+    original_size: Tuple[int, int]
+    target_size: Tuple[int, int]
 
 
 def load_image_rgb(source: str | bytes | Image.Image) -> np.ndarray:
@@ -50,11 +64,11 @@ def load_image_rgb(source: str | bytes | Image.Image) -> np.ndarray:
 def preprocess_for_model(
     image_rgb: np.ndarray,
     target_size: Tuple[int, int] = (512, 512),
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, LetterboxMeta]:
     """Preprocess an RGB image for Mask2Former inference.
 
     Steps:
-        1. Resize to target_size.
+        1. Resize with aspect ratio preserved and pad to target_size.
         2. Normalise from [0, 255] to [0, 1].
         3. Apply ImageNet normalisation.
 
@@ -65,17 +79,43 @@ def preprocess_for_model(
     Returns:
         Tuple of ``(normalised_tensor, resized_image)``, where:
             - ``normalised_tensor``: shape ``(1, 3, H, W)``, float32, normalised.
-            - ``resized_image``: shape ``(H, W, 3)``, uint8, for later use.
+            - ``resized_image``: letterboxed image, shape ``(H, W, 3)``, uint8.
+            - ``meta``: geometry needed to map masks back to original size.
     """
-    h, w = target_size
-    resized = cv2.resize(image_rgb, (w, h), interpolation=cv2.INTER_LINEAR)
+    target_h, target_w = target_size
+    orig_h, orig_w = image_rgb.shape[:2]
+    scale = min(target_w / max(orig_w, 1), target_h / max(orig_h, 1))
+    resized_w = max(1, int(round(orig_w * scale)))
+    resized_h = max(1, int(round(orig_h * scale)))
+    pad_left = (target_w - resized_w) // 2
+    pad_top = (target_h - resized_h) // 2
+
+    resized_content = cv2.resize(
+        image_rgb,
+        (resized_w, resized_h),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    resized = np.full((target_h, target_w, 3), 114, dtype=np.uint8)
+    resized[
+        pad_top:pad_top + resized_h,
+        pad_left:pad_left + resized_w,
+    ] = resized_content
 
     tensor = resized.astype(np.float32) / 255.0
     tensor = (tensor - IMAGENET_MEAN) / IMAGENET_STD
     tensor = tensor.transpose(2, 0, 1)  # (H, W, C) -> (C, H, W)
     tensor = np.expand_dims(tensor, axis=0)  # (1, C, H, W)
 
-    return tensor, resized
+    meta = LetterboxMeta(
+        scale=scale,
+        pad_left=pad_left,
+        pad_top=pad_top,
+        resized_width=resized_w,
+        resized_height=resized_h,
+        original_size=(orig_h, orig_w),
+        target_size=(target_h, target_w),
+    )
+    return tensor, resized, meta
 
 
 def refine_mask(
@@ -138,6 +178,7 @@ def refine_mask(
 def resize_mask_to_original(
     mask: np.ndarray,
     original_size: Tuple[int, int],
+    letterbox_meta: Optional[LetterboxMeta] = None,
 ) -> np.ndarray:
     """Resize a binary mask back to the original image dimensions.
 
@@ -149,6 +190,13 @@ def resize_mask_to_original(
         Mask of shape ``(original_height, original_width)``.
     """
     orig_h, orig_w = original_size
+    if letterbox_meta is not None:
+        y0 = letterbox_meta.pad_top
+        x0 = letterbox_meta.pad_left
+        y1 = y0 + letterbox_meta.resized_height
+        x1 = x0 + letterbox_meta.resized_width
+        mask = mask[y0:y1, x0:x1]
+
     resized = cv2.resize(mask, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
     return resized
 

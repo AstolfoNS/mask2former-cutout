@@ -154,7 +154,7 @@ class CutoutEngine:
         image_rgb = image_ops.load_image_rgb(image)
         original_size = image_rgb.shape[:2]  # (H, W)
 
-        tensor, resized_image = image_ops.preprocess_for_model(
+        tensor, resized_image, letterbox_meta = image_ops.preprocess_for_model(
             image_rgb,
             target_size=self.input_size,
         )
@@ -190,7 +190,9 @@ class CutoutEngine:
         for idx, name in enumerate(self.LABEL_NAMES):
             if idx in class_indices:
                 mask = image_ops.resize_mask_to_original(
-                    masks_np[idx], original_size
+                    masks_np[idx],
+                    original_size,
+                    letterbox_meta=letterbox_meta,
                 )
                 # Refine mask
                 mask = image_ops.refine_mask(
