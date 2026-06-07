@@ -10,15 +10,18 @@
   - https://huggingface.co/docs/transformers/v4.37.2/en/perf_train_gpu_one
 
   说明：本文是训练方案核查记录，部分时间估算来自历史 7755 张训练集。
-  当前 `ai-core/data/cutout_mix_512/annotations.json` 为 6000 张图片、
-  24567 条标注；实际训练步数应按当前数据集重新估算。启动命令以
-  `uv run python` 为准。
+  当前推荐推理权重为
+  `ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/`；该训练记录中
+  最佳验证指标约为 `mIoU = 0.7221`，`person IoU = 0.7385`，
+  `car IoU = 0.7055`。旧 HVM 权重曾达到更高的验证指标，但数据分布较窄，
+  不应直接视为当前真实场景泛化能力。启动命令以项目现有
+  `ai-core/scripts/train.sh` 为准。
 
   ## 1. 架构与任务适配性诊断
 
   结论：Mask2Former Swin-Small 用于 512x512、person/car 双类别 COCO 实例分割是合理且偏强的基线。
 
-  当前 COCO+VOC 处理后数据集约 6000 张图片；历史训练集曾为 7755 张。类别只有 2 类，且图像已统一到 512x512，这对 Swin-Small + Mask2Former 来说属于“中等数据量、低类别复杂度、高边界质量要求”的场
+  当前 COCO+VOC 配方处理后数据集目标约 6000 张图片；历史训练集曾为 7755 张。类别只有 2 类，且图像已统一到 512x512，这对 Swin-Small + Mask2Former 来说属于“中等数据量、低类别复杂度、高边界质量要求”的场
   景。Mask2Former 的 query-based mask decoder 对实例边界、重叠目标、多人多车场景会比普通 semantic-only 模型更合适。
 
   加载阶段必须注意：
@@ -174,3 +177,19 @@
   - 首轮不要开 torch_compile=True。Mask2Former + 动态 target/mask 结构可能带来 compile 开销或不稳定，等 baseline 跑通后再单独测试。
 
   最终发车参数：batch_size=8，grad_acc=2，bf16=True，tf32=True，workers=8，eval batch=4。这组配置最适合作为第一晚的高性能稳定基线。
+
+  当前项目推荐使用训练包装脚本启动：
+
+  ```bash
+  cd ai-core
+  ./scripts/train.sh \
+      --annotation_file data/cutout_mix_512/annotations.json \
+      --image_dir data/cutout_mix_512/images \
+      --output_dir ./weights/mask2former-cutout-coco-voc-v1 \
+      --epochs 40 \
+      --batch_size 8 \
+      --gradient_accumulation_steps 2
+  ```
+
+  推理侧预处理也应与训练保持一致：输入图像等比例 letterbox 到 512x512，
+  使用 RGB 114 填充；mask 后处理时先裁掉 padding，再映射回原图尺寸。

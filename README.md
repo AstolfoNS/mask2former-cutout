@@ -2,13 +2,14 @@
 
 基于 Mask2Former 的双类别图像分割与抠图项目，面向 `person` 和 `car` 两类目标，支持模型训练、模型推理服务和前端交互界面建设。
 
-当前项目已完成模型训练，最佳模型保存在：
+当前推荐推理模型保存在：
 
 ```text
-ai-core/weights/mask2former-cutout/best_model/
+ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/
 ```
 
-该目录是后续推理和部署应优先使用的最小模型目录。
+该目录是后续推理和部署应优先使用的最小模型目录。旧 HVM 训练权重仍保留在
+`ai-core/weights/mask2former-cutout/best_model/`，主要用于回滚和对比，不建议作为默认泛化模型。
 
 ## 项目目标
 
@@ -43,10 +44,14 @@ mask2former-cutout/
             data/
                 build_cutout_dataset.py
                 download_and_build_coco_cutout.py
+                prepare_pascal_voc2012.py
             train.sh
             setup_env.sh
         data/
         weights/
+            mask2former-cutout-coco-voc-v1/
+                best_model/
+                training_metrics.csv
             mask2former-cutout/
                 best_model/
                 training_metrics.csv
@@ -84,8 +89,10 @@ mask2former-cutout/
 - 任务：person / car 双类别分割
 - 输入尺寸：`512x512`
 - 数据格式：COCO JSON
-- 历史训练数据量：`7755` 张图片
-- 最佳验证指标：`mIoU ~= 0.9795`
+- 当前推荐训练集：COCO 2017 小规模 person/car 子集 + Pascal VOC 2012 trainval 语义分割数据
+- 当前推荐权重：`ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/`
+- 当前推荐权重最佳验证指标：`mIoU ~= 0.7221`
+- 旧 HVM 权重最佳验证指标曾达到 `mIoU ~= 0.9795`，但数据分布更窄，泛化效果不作为当前主判断依据。
 
 当前数据集构建与训练命令见：
 
@@ -96,6 +103,13 @@ ai-core/docs/dataset_build.md
 当前权重目录中包含：
 
 ```text
+ai-core/weights/mask2former-cutout-coco-voc-v1/
+    best_model/
+    checkpoint-5504/
+    checkpoint-6880/
+    checkpoint-7224/
+    training_metrics.csv
+
 ai-core/weights/mask2former-cutout/
     best_model/
     checkpoint-3178/
@@ -107,7 +121,8 @@ ai-core/weights/mask2former-cutout/
 
 说明：
 
-- `best_model/`：推荐用于推理和部署。
+- `mask2former-cutout-coco-voc-v1/best_model/`：当前推荐用于推理和部署。
+- `mask2former-cutout/best_model/`：旧 HVM 训练权重，仅建议作为回滚或对比模型。
 - `checkpoint-*`：用于恢复训练，推理部署通常不需要。
 - `training_metrics.csv`：训练与验证指标历史，可用于绘制 loss 和 mIoU 曲线。
 - `validation_preview.png`：验证集可视化预览图。
@@ -186,6 +201,9 @@ cd ai-core
 ```bash
 cd ai-core
 ./scripts/train.sh \
+    --annotation_file data/cutout_mix_512/annotations.json \
+    --image_dir data/cutout_mix_512/images \
+    --output_dir ./weights/mask2former-cutout-coco-voc-v1 \
     --epochs 40 \
     --batch_size 8 \
     --gradient_accumulation_steps 2
@@ -200,7 +218,7 @@ ai-core/src/train.py
 训练指标会持久化到：
 
 ```text
-ai-core/weights/mask2former-cutout/training_metrics.csv
+ai-core/weights/<run-name>/training_metrics.csv
 ```
 
 CSV 字段包括：
@@ -216,7 +234,7 @@ iou_person, iou_car, dice_person, dice_car
 推理部署时只需要拷贝：
 
 ```text
-ai-core/weights/mask2former-cutout/best_model/
+ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/
 ```
 
 不要把 `checkpoint-*` 作为生产推理模型目录使用。checkpoint 中包含 optimizer、scheduler 和随机状态文件，主要用于恢复训练。
@@ -226,9 +244,9 @@ ai-core/weights/mask2former-cutout/best_model/
 ```text
 1. 加载 best_model。
 2. 读取上传图片并转为 RGB。
-3. resize 或 pad 到 512x512。
+3. 使用与训练一致的 letterbox 预处理：等比例缩放，RGB 114 填充到 512x512。
 4. 模型推理得到 person/car mask。
-5. mask resize 回原图尺寸。
+5. 先裁掉 letterbox padding 区域，再将 mask resize 回原图尺寸。
 6. 生成 mask、overlay、透明 PNG。
 7. 返回结果 URL。
 ```
@@ -250,15 +268,36 @@ backend/main.py
 开发启动：
 
 ```bash
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cd /home/timeleafing/projects/mask2former-cutout
+uv run --project backend uvicorn main:app \
+    --app-dir backend \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --reload
+```
+
+不要直接运行系统全局的 `uvicorn`。项目依赖由 `uv` 管理，直接运行
+`uvicorn main:app ...` 可能会使用系统 Python，导致 `python-dotenv`、
+`torch` 等依赖缺失。
+
+指定新训练模型作为默认推理模型：
+
+```bash
+cd /home/timeleafing/projects/mask2former-cutout
+MODEL_DIR=/home/timeleafing/projects/mask2former-cutout/ai-core/weights/mask2former-cutout-coco-voc-v1/best_model \
+uv run --project backend uvicorn main:app \
+    --app-dir backend \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --reload
 ```
 
 生产启动示例：
 
 ```bash
-cd backend
-gunicorn main:app \
+cd /home/timeleafing/projects/mask2former-cutout
+uv run --project backend gunicorn main:app \
+    --chdir backend \
     -k uvicorn.workers.UvicornWorker \
     -w 1 \
     --bind 0.0.0.0:8000
@@ -268,6 +307,7 @@ gunicorn main:app \
 
 ```text
 GET  /api/health
+GET  /api/models
 POST /api/segment
 GET  /api/results/{job_id}
 ```
@@ -279,7 +319,10 @@ GET  /api/results/{job_id}
     "job_id": "string",
     "status": "success",
     "classes": ["person", "car"],
+    "model_id": "default",
+    "model_label": "default",
     "files": {
+        "original_url": "/static/outputs/{job_id}/original.png",
         "cutout_url": "/static/outputs/{job_id}/cutout.png",
         "mask_url": "/static/outputs/{job_id}/mask_combined.png",
         "overlay_url": "/static/outputs/{job_id}/overlay.png"
@@ -311,7 +354,7 @@ frontend/
 开发启动：
 
 ```bash
-cd frontend
+cd /home/timeleafing/projects/mask2former-cutout/frontend
 npm run dev
 ```
 
@@ -333,9 +376,11 @@ npm run preview
 
 ```text
 frontend/src/components/
+    HistoryList.vue
     ImageUploader.vue
     MaskCanvas.vue
     ResultPanel.vue
+    ResultViewer.vue
 
 frontend/src/composables/
     useCutoutApi.ts

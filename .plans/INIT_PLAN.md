@@ -1,5 +1,10 @@
 # Mask2Former-Cutout 项目初始化文档
 
+> 状态说明：本文是项目初始化阶段的历史计划，不代表当前实现的完整事实。
+> 当前准确用法以根目录 `README.md`、`ai-core/docs/dataset_build.md`
+> 和实际源码为准。当前项目使用 `uv` workspace；训练入口为
+> `ai-core/scripts/train.sh`，推荐数据集为 COCO+VOC 构建结果。
+
 > **项目代号:** `Mask2Former-Cutout`
 > **核心目标:** 打造一个极致性能、高精度的双类别（人、车）图像抠图全栈微服务系统。
 > **硬件环境:** 独立 Linux(Ubuntu) 裸机 (单卡 RTX 4090 24GB VRAM)
@@ -157,4 +162,3 @@ echo "=> 环境搭建完成！请执行: source .venv/bin/activate"
 - [ ] **Step 2 (算力点火)**: 编写并执行 `scripts/train.sh`，以 BF16 满血姿态启动 Mask2Former 微调。
 - [ ] **Step 3 (服务封装)**: 训练达标后，切入 `backend/` 目录，封装 FastAPI 推理接口。
 - [ ] **Step 4 (全栈闭环)**: 开发前端可视化画布，打通端到端交互。
-

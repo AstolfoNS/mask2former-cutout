@@ -1,5 +1,9 @@
 # Mask2Former-Cutout 项目完善搭建文档
 
+> 状态说明：本文是早期项目完善规划文档，部分目录名和模块名保留了历史设计。
+> 当前准确的启动、训练、数据集构建和推荐权重信息以根目录 `README.md`
+> 以及 `ai-core/docs/dataset_build.md` 为准。
+
 ## 1. 目标
 
 本文档用于指导 `Mask2Former-Cutout` 从已完成训练的模型，完善为一个可本地运行、可部署、可维护的完整图像分割抠图系统。
@@ -34,6 +38,8 @@ ai-core/
 ai-core/
     src/train.py
     scripts/train.sh
+    weights/mask2former-cutout-coco-voc-v1/best_model/
+    weights/mask2former-cutout-coco-voc-v1/training_metrics.csv
     weights/mask2former-cutout/best_model/
     weights/mask2former-cutout/training_metrics.csv
 
@@ -49,10 +55,11 @@ frontend/
 模型侧已经具备：
 
 - 已完成训练。
-- 最佳权重位于 `ai-core/weights/mask2former-cutout/best_model/`。
+- 当前推荐权重位于 `ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/`。
+- 旧 HVM 权重位于 `ai-core/weights/mask2former-cutout/best_model/`，仅建议用于回滚和对比。
 - 模型类别为 `person` 和 `car`。
 - 训练输入尺寸为 `512x512`。
-- 当前验证最佳 mIoU 约为 `0.9795`。
+- 当前推荐权重验证最佳 mIoU 约为 `0.7221`。
 
 ## 3. 推荐最终目录结构
 
@@ -66,7 +73,7 @@ mask2former-cutout/
             inference.py
             postprocess.py
         weights/
-            mask2former-cutout/
+            mask2former-cutout-coco-voc-v1/
                 best_model/
         docs/
 
@@ -74,18 +81,18 @@ mask2former-cutout/
         app/
             api/
                 __init__.py
-                health.py
-                segment.py
-                files.py
+                routes.py
             core/
                 __init__.py
                 config.py
-                model_runtime.py
+                engine.py
                 image_ops.py
+                model_registry.py
                 storage.py
             schemas/
                 __init__.py
-                segment.py
+                request.py
+                response.py
             static/
                 uploads/
                 outputs/
@@ -119,7 +126,7 @@ mask2former-cutout/
 部署和推理只应使用：
 
 ```text
-ai-core/weights/mask2former-cutout/best_model/
+ai-core/weights/mask2former-cutout-coco-voc-v1/best_model/
 ```
 
 不要加载：
@@ -142,8 +149,8 @@ checkpoint-5448/
 
 - 输入图片读取为 RGB。
 - 保留原始尺寸用于结果映射。
-- 推理前 resize 到 512x512，或按训练预处理逻辑处理。
-- 输出 mask 后再 resize 回原图尺寸。
+- 推理前使用与训练一致的 letterbox：等比例缩放，RGB 114 填充到 512x512。
+- 输出 mask 后先裁掉 padding，再 resize 回原图尺寸。
 
 建议接口参数：
 
@@ -235,23 +242,20 @@ outputs/{job_id}/
 backend/app/core/config.py
     读取环境变量、路径配置、推理参数。
 
-backend/app/core/model_runtime.py
-    模型加载、单例管理、GPU 推理。
+backend/app/core/engine.py
+    模型加载、GPU 推理、mask 后处理调度。
+
+backend/app/core/model_registry.py
+    本地模型目录发现、懒加载切换和当前模型管理。
 
 backend/app/core/image_ops.py
-    图片读取、resize、mask 后处理、透明 PNG 生成。
+    图片读取、letterbox 预处理、mask 后处理、透明 PNG 生成。
 
 backend/app/core/storage.py
     上传文件和输出文件管理。
 
-backend/app/api/segment.py
-    POST /api/segment 推理接口。
-
-backend/app/api/health.py
-    GET /api/health 健康检查。
-
-backend/app/api/files.py
-    静态文件或结果文件访问辅助接口。
+backend/app/api/routes.py
+    GET /api/health、GET /api/models、POST /api/segment、GET /api/results/{job_id}。
 ```
 
 ### 5.3 后端配置
@@ -259,7 +263,7 @@ backend/app/api/files.py
 建议使用环境变量：
 
 ```text
-MODEL_DIR=/root/autodl-tmp/projects/mask2former-cutout/ai-core/weights/mask2former-cutout/best_model
+MODEL_DIR=/root/autodl-tmp/projects/mask2former-cutout/ai-core/weights/mask2former-cutout-coco-voc-v1/best_model
 DEVICE=cuda
 INFERENCE_DTYPE=float16
 INPUT_SIZE=512
@@ -317,7 +321,10 @@ return_cutout: true
     "job_id": "string",
     "status": "success",
     "classes": ["person", "car"],
+    "model_id": "default",
+    "model_label": "default",
     "files": {
+        "original_url": "/static/outputs/{job_id}/original.png",
         "cutout_url": "/static/outputs/{job_id}/cutout.png",
         "mask_url": "/static/outputs/{job_id}/mask_combined.png",
         "overlay_url": "/static/outputs/{job_id}/overlay.png"
@@ -536,8 +543,12 @@ blur_kernel = 3
 后端：
 
 ```bash
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cd /home/timeleafing/projects/mask2former-cutout
+uv run --project backend uvicorn main:app \
+    --app-dir backend \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --reload
 ```
 
 前端：
