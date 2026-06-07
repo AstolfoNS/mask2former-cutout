@@ -5,10 +5,13 @@ Starts the FastAPI inference server with Uvicorn.
 
 Usage:
     # Development (with auto-reload)
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    uv run --project backend uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
+
+    # Development with an explicit model
+    MODEL_DIR=/path/to/best_model uv run --project backend uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 
     # Production (with Gunicorn)
-    gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 --bind 0.0.0.0:8000
+    uv run --project backend gunicorn main:app --chdir backend -k uvicorn.workers.UvicornWorker -w 1 --bind 0.0.0.0:8000
 """
 
 from __future__ import annotations
