@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted } from 'vue'
+import { computed, ref, onBeforeUnmount, onMounted } from 'vue'
 import {
   NUpload,
   NButton,
@@ -37,8 +37,13 @@ const selectedFile = ref<File | null>(null)
 const threshold = ref(0.5)
 const previewUrl = ref<string>('')
 const selectedModelId = ref<string | null>(null)
+const models = ref<ModelInfo[]>([])
 const modelOptions = ref<{ label: string; value: string }[]>([])
 const modelLoading = ref(false)
+
+const selectedModel = computed(() => (
+  models.value.find((model) => model.id === selectedModelId.value) || null
+))
 
 const modeOptions = [
   { label: 'Both (Person + Car)', value: 'both' as CutoutMode },
@@ -60,17 +65,40 @@ async function loadModels() {
   modelLoading.value = true
   try {
     const response = await listModels()
-    const models: ModelInfo[] = response?.models || []
-    modelOptions.value = models.map((model) => ({
-      label: model.active ? `${model.label} (active)` : model.label,
+    models.value = response?.models || []
+    modelOptions.value = models.value.map((model) => ({
+      label: buildModelOptionLabel(model),
       value: model.id,
     }))
-    selectedModelId.value = models.find((model) => model.active)?.id
-      || models[0]?.id
+    selectedModelId.value = models.value.find((model) => model.active)?.id
+      || models.value[0]?.id
       || null
   } finally {
     modelLoading.value = false
   }
+}
+
+function buildModelOptionLabel(model: ModelInfo): string {
+  const name = formatModelName(model)
+  const activeSuffix = model.active ? ' (active)' : ''
+  if (model.id === 'default') {
+    return `Default: ${name}${activeSuffix}`
+  }
+  return `${name}${activeSuffix}`
+}
+
+function formatModelName(model: ModelInfo): string {
+  const normalizedPath = model.path.replace(/\\/g, '/')
+  const parts = normalizedPath.split('/').filter(Boolean)
+  const bestModelIndex = parts.lastIndexOf('best_model')
+
+  if (bestModelIndex > 0) {
+    return `${parts[bestModelIndex - 1]}/best_model`
+  }
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('/')
+  }
+  return model.label || model.id
 }
 
 function onFileChange(options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) {
@@ -171,6 +199,13 @@ async function handleCutout() {
           size="small"
           class="mt-1"
         />
+        <NText
+          v-if="selectedModel"
+          class="block mt-1 text-xs text-gray-500 break-all"
+        >
+          {{ selectedModel.id === 'default' ? 'Default model' : 'Selected model' }}:
+          {{ selectedModel.path }}
+        </NText>
       </div>
 
       <div>
